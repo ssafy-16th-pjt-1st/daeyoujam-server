@@ -1,7 +1,8 @@
 import logging
+import time
 
 from fastapi import HTTPException
-from openai import OpenAI
+from openai import APIConnectionError, AuthenticationError, BadRequestError, OpenAI, OpenAIError, RateLimitError
 
 from app.core.config import get_settings
 from app.ai.services.rag_service import RankedPlace
@@ -23,6 +24,70 @@ def _resolve_base_url(key: str, model: str, configured_base_url: str) -> str | N
     if key.startswith("gsk_") or model.startswith("groq/"):
         return GROQ_OPENAI_BASE_URL
     return None
+
+
+def build_openai_client() -> tuple[OpenAI, str | None]:
+    settings = get_settings()
+    key = require_openai_key()
+    base_url = _resolve_base_url(key, settings.openai_model, settings.openai_base_url)
+    client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+    return client, base_url
+
+
+def check_llm_health() -> dict:
+    settings = get_settings()
+    client, base_url = build_openai_client()
+    started_at = time.perf_counter()
+
+    try:
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            temperature=0,
+            max_tokens=8,
+            messages=[
+                {"role": "system", "content": "Reply with ok only."},
+                {"role": "user", "content": "health check"},
+            ],
+        )
+    except AuthenticationError as exc:
+        logger.warning("LLM authentication failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API 인증에 실패했어요. OPENAI_API_KEY가 올바른 프로젝트 키인지 확인해 주세요.",
+        ) from exc
+    except RateLimitError as exc:
+        logger.warning("LLM quota or rate limit failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API 할당량 또는 결제 한도를 초과했어요. OpenAI/Groq 대시보드의 billing, quota, rate limit을 확인해 주세요.",
+        ) from exc
+    except BadRequestError as exc:
+        logger.warning("LLM request configuration failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM 요청 설정이 올바르지 않아요. OPENAI_MODEL과 OPENAI_BASE_URL 조합을 확인해 주세요.",
+        ) from exc
+    except APIConnectionError as exc:
+        logger.warning("LLM network connection failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API 서버에 연결하지 못했어요. 네트워크, 프록시, 방화벽 설정을 확인해 주세요.",
+        ) from exc
+    except OpenAIError as exc:
+        logger.warning("LLM health check failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API 헬스체크에 실패했어요. OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL 값을 확인해 주세요.",
+        ) from exc
+
+    content = response.choices[0].message.content if response.choices else ""
+    return {
+        "status": "ok",
+        "model": settings.openai_model,
+        "base_url": base_url or "https://api.openai.com/v1",
+        "latency_ms": round((time.perf_counter() - started_at) * 1000),
+        "response": content.strip(),
+    }
 
 
 def build_llm_chat_answer(
@@ -58,8 +123,7 @@ def build_llm_chat_answer(
     interests = user_profile.get("interests") or []
 
     try:
-        base_url = _resolve_base_url(key, settings.openai_model, settings.openai_base_url)
-        client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+        client, _ = build_openai_client()
         response = client.chat.completions.create(
             model=settings.openai_model,
             temperature=0.45,

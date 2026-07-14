@@ -13,20 +13,14 @@ settings = get_settings()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="LocalHub API", version="0.1.0")
+    app = FastAPI(title=settings.app_name, version=settings.app_version)
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            settings.frontend_origin,
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5174",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=settings.cors_method_list,
+        allow_headers=settings.cors_header_list,
     )
 
     register_exception_handlers(app)
@@ -39,7 +33,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "service": "localhub-api"}
+        return {"status": "ok", "service": settings.service_name}
 
     return app
 

@@ -1,4 +1,4 @@
-# 대유잼 Backend
+# 대(전)유잼 Backend
 
 대전/충청권 관광 데이터를 기반으로 장소 조회, 게시글, 리뷰, 추천, AI 기능을 제공하는 FastAPI 백엔드 서비스입니다. SQLite 데이터베이스를 기본으로 사용하며, `backend/data/raw`의 TourAPI JSON 데이터를 시드하여 장소 API에서 조회할 수 있습니다.
 
