@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.ai.services.openai_service import build_llm_chat_answer
+from app.ai.services.openai_service import build_llm_chat_answer, check_llm_health
 from app.ai.services.rag_service import build_chat_answer, build_sources, retrieve_ranked_places
 from app.schemas.place import PlaceRead
 
@@ -54,6 +54,11 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)):
         "places": places,
         "sources": build_sources([item.place for item in ranked_places]),
     }
+
+
+@router.get("/health")
+def llm_health():
+    return check_llm_health()
 
 
 @router.post("/reviews/{place_id}/summary")

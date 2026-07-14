@@ -8,10 +8,19 @@ class NotFoundError(Exception):
         self.message = message
 
 
+class ForbiddenError(Exception):
+    def __init__(self, message: str = "Forbidden") -> None:
+        self.message = message
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(NotFoundError)
     async def not_found_handler(_: Request, exc: NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": exc.message})
+
+    @app.exception_handler(ForbiddenError)
+    async def forbidden_handler(_: Request, exc: ForbiddenError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": exc.message})
 
     @app.exception_handler(SQLAlchemyError)
     async def sqlalchemy_handler(_: Request, exc: SQLAlchemyError) -> JSONResponse:
