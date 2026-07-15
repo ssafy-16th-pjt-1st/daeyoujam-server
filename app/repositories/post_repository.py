@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.comment import Comment
 from app.models.post import Post
+from app.models.post_like import PostLike
 from app.schemas.post import CommentCreate, PostCreate, PostUpdate
 
 
@@ -12,8 +13,10 @@ def list_posts(
     q: str = "",
     category: str | None = None,
     limit: int = 30,
+    sort: str = "recent",
 ) -> tuple[list[Post], int]:
-    stmt = select(Post)
+    like_count = func.count(PostLike.id).label("like_count")
+    stmt = select(Post, like_count).outerjoin(PostLike).group_by(Post.id)
     count_stmt = select(func.count(Post.id))
 
     if category:
@@ -26,7 +29,18 @@ def list_posts(
         stmt = stmt.where(condition)
         count_stmt = count_stmt.where(condition)
 
-    items = db.scalars(stmt.order_by(Post.id.desc()).limit(limit)).all()
+    if sort == "likes":
+        order_by = (like_count.desc(), Post.id.desc())
+    elif sort == "views":
+        order_by = (Post.view_count.desc(), Post.id.desc())
+    else:
+        order_by = (Post.created_at.desc(), Post.id.desc())
+
+    rows = db.execute(stmt.order_by(*order_by).limit(limit)).all()
+    items = []
+    for post, count in rows:
+        post.like_count = int(count or 0)
+        items.append(post)
     total = db.scalar(count_stmt) or 0
     return items, total
 
@@ -68,4 +82,3 @@ def create_comment(db: Session, post_id: int, payload: CommentCreate) -> Comment
 
 def delete_comment(db: Session, comment: Comment) -> None:
     db.delete(comment)
-

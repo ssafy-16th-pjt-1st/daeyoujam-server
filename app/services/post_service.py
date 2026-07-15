@@ -8,8 +8,16 @@ from app.repositories import post_repository
 from app.schemas.post import CommentCreate, CommentDelete, PostCreate, PostDelete, PostUpdate
 
 
-def list_posts(db: Session, *, q: str = "", category: str | None = None, limit: int = 30, guest_id: str | None = None):
-    items, total = post_repository.list_posts(db, q=q, category=category, limit=limit)
+def list_posts(
+    db: Session,
+    *,
+    q: str = "",
+    category: str | None = None,
+    limit: int = 30,
+    guest_id: str | None = None,
+    sort: str = "recent",
+):
+    items, total = post_repository.list_posts(db, q=q, category=category, limit=limit, sort=sort)
     attach_like_state(db, items, guest_id)
     return {"items": items, "total": total}
 
