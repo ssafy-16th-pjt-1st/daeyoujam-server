@@ -9,6 +9,16 @@ from app.schemas.user import UserCreate, UserRead
 
 router = APIRouter()
 
+TRAVEL_STYLE_ALIASES = {
+    "느긋한 산책": "힐링",
+}
+
+
+def normalize_travel_style(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return TRAVEL_STYLE_ALIASES.get(value, value)
+
 
 @router.post("", response_model=UserRead, status_code=201)
 def upsert_user(payload: UserCreate, db: Session = Depends(get_db)):
@@ -24,7 +34,7 @@ def upsert_user(payload: UserCreate, db: Session = Depends(get_db)):
     user.district = payload.district
     user.interests = json.dumps(payload.interests, ensure_ascii=False)
     user.preferred_keywords = json.dumps(payload.preferred_keywords, ensure_ascii=False)
-    user.travel_style = payload.travel_style
+    user.travel_style = normalize_travel_style(payload.travel_style)
     user.companion_type = payload.companion_type
     db.commit()
     db.refresh(user)

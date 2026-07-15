@@ -72,6 +72,51 @@ def test_recommendations_shape():
     assert "items" in response.json()
 
 
+def test_user_save_accepts_all_frontend_travel_styles():
+    travel_styles = ["힐링", "맛집 탐방", "문화생활", "사진 촬영", "액티비티", "축제", "쇼핑", "가족 나들이", "무관"]
+
+    for index, travel_style in enumerate(travel_styles):
+        response = client.post(
+            "/api/v1/users",
+            json={
+                "guest_id": f"frontend-style-guest-{index}",
+                "nickname": "style-tester",
+                "age_group": "응답 안 함",
+                "gender": "응답 안 함",
+                "province": "대전광역시",
+                "city": "대전광역시",
+                "district": "유성구",
+                "interests": ["관광지"],
+                "preferred_keywords": [],
+                "travel_style": travel_style,
+                "companion_type": "무관",
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["travel_style"] == travel_style
+
+
+def test_user_save_normalizes_legacy_walk_travel_style():
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "guest_id": "legacy-style-guest",
+            "nickname": "legacy-style-tester",
+            "age_group": "응답 안 함",
+            "gender": "응답 안 함",
+            "province": "대전광역시",
+            "city": "대전광역시",
+            "district": "유성구",
+            "interests": ["관광지"],
+            "preferred_keywords": [],
+            "travel_style": "느긋한 산책",
+            "companion_type": "무관",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["travel_style"] == "힐링"
+
+
 def test_recommendations_respect_selected_category():
     response = client.post(
         "/api/v1/recommendations",
