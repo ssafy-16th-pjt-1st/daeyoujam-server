@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -16,6 +16,12 @@ from app.services import post_service
 
 router = APIRouter()
 
+@router.post("/{post_id}/verify")
+def verify_post_password(post_id: int, payload: PostDelete, db: Session = Depends(get_db)):
+    print(f"디버그: verify 요청 도달! ID={post_id}, 데이터={payload}")
+    # 서비스 계층 호출
+    post_service.verify_post_password(db, post_id, payload.edit_password)
+    return {"message": "Success"}
 
 @router.get("", response_model=PostListResponse)
 def list_posts(
@@ -25,7 +31,6 @@ def list_posts(
     db: Session = Depends(get_db),
 ):
     return post_service.list_posts(db, q=q, category=category, limit=limit)
-
 
 @router.get("/{post_id}", response_model=PostRead)
 def get_post(post_id: int, db: Session = Depends(get_db)):
@@ -60,4 +65,5 @@ def create_comment(post_id: int, payload: CommentCreate, db: Session = Depends(g
 @router.delete("/{post_id}/comments/{comment_id}", status_code=204)
 def delete_comment(post_id: int, comment_id: int, payload: CommentDelete, db: Session = Depends(get_db)):
     post_service.delete_comment(db, post_id, comment_id, payload)
+
 

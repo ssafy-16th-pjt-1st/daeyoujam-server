@@ -74,3 +74,7 @@ def _ensure_edit_password(actual_password: str, submitted_password: str) -> None
     if actual_password != submitted_password:
         raise ForbiddenError("Invalid edit password")
 
+def verify_post_password(db: Session, post_id: int, edit_password: str):
+    post = get_post_or_404(db, post_id)
+    _ensure_edit_password(post.edit_password, edit_password)
+    return True
