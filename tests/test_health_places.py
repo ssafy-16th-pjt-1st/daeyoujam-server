@@ -48,6 +48,24 @@ def test_recommendations_shape():
     assert "items" in response.json()
 
 
+def test_recommendations_respect_selected_category():
+    response = client.post(
+        "/api/v1/recommendations",
+        json={
+            "age_group": "20대",
+            "gender": "응답 안 함",
+            "district": "유성구",
+            "category": "문화시설",
+            "interests": ["음식점"],
+            "limit": 5,
+        },
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items
+    assert all(item["content_type"] == "문화시설" for item in items)
+
+
 def test_comment_delete_requires_password():
     created = client.post(
         "/api/v1/posts",

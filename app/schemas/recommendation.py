@@ -6,7 +6,10 @@ from app.schemas.place import PlaceRead
 class RecommendationRequest(BaseModel):
     age_group: str | None = None
     gender: str | None = None
+    province: str | None = None
+    city: str | None = None
     district: str | None = None
+    category: str | None = Field(default=None, max_length=50)
     interests: list[str] = Field(default_factory=list)
     limit: int = Field(default=12, ge=1, le=50)
 

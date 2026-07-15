@@ -11,29 +11,44 @@ from app.schemas.recommendation import RecommendationRequest, RecommendationResp
 router = APIRouter()
 
 
+def _is_specific_city(city: str | None) -> bool:
+    if not city:
+        return False
+    return not any(suffix in city for suffix in ["광역시", "특별시", "특별자치시", "도"])
+
+
 @router.post("", response_model=RecommendationResponse)
 def recommend(payload: RecommendationRequest, db: Session = Depends(get_db)):
     avg_rating = func.coalesce(func.avg(Review.rating), 0).label("average_rating")
     review_count = func.count(Review.id).label("review_count")
-    rows = db.execute(select(Place, avg_rating, review_count).outerjoin(Review).group_by(Place.id)).all()
+    stmt = select(Place, avg_rating, review_count).outerjoin(Review).group_by(Place.id)
+    if payload.category:
+        stmt = stmt.where(Place.content_type == payload.category)
+    rows = db.execute(stmt).all()
 
     scored = []
     for place, rating, count in rows:
         score = 0
         reasons = []
+        if payload.category and place.content_type == payload.category:
+            score += 30
+            reasons.append(f"{payload.category} 카테고리")
         if place.content_type in payload.interests:
-            score += 40
+            score += 55
             reasons.append(f"{place.content_type} 관심사")
         if payload.district and place.addr1 and payload.district in place.addr1:
-            score += 25
-            reasons.append(f"{payload.district} 지역")
-        score += min(float(rating or 0), 5) * 6
-        score += min(int(count or 0), 10) * 2
+            score += 45
+            reasons.append(f"{payload.district} 가까운 지역")
+        elif _is_specific_city(payload.city) and place.addr1 and payload.city in place.addr1:
+            score += 12
+            reasons.append(f"{payload.city} 생활권")
+        score += min(float(rating or 0), 5) * 5
+        score += min(int(count or 0), 10) * 1.5
         if place.first_image or place.first_image2:
             score += 5
         place.average_rating = round(float(rating or 0), 1)
         place.review_count = int(count or 0)
-        reason = ", ".join(reasons) + "를 함께 반영한 추천이에요." if reasons else "대전·충청권 인기 장소 후보예요."
+        reason = " · ".join(reasons) + " 기준으로 추천했어요." if reasons else "대전·충청권 인기 장소 후보예요."
         scored.append((score, place, reason))
 
     scored.sort(key=lambda item: item[0], reverse=True)
