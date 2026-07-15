@@ -38,3 +38,8 @@ def list_places(db: Session, *, category: str | None, q: str | None, page: int, 
 def get_place(db: Session, place_id: int):
     stmt = _with_rating(select(Place).where(Place.id == place_id))
     return db.execute(stmt).first()
+
+
+def get_place_by_content_id(db: Session, content_id: int):
+    stmt = select(Place).where(Place.content_id == content_id)
+    return db.execute(stmt).scalar_one_or_none()

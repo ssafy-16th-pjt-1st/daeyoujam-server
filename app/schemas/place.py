@@ -40,3 +40,16 @@ class PlaceListResponse(BaseModel):
     total: int
     page: int
     size: int
+
+
+class PlaceContentRead(BaseModel):
+    content_id: int
+    content_type_id: int | None = None
+    title: str
+    addr1: str | None = None
+    tel: str | None = None
+    mapx: float | None = None
+    mapy: float | None = None
+    first_image: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
