@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.repositories.place_repository import get_place, list_places
+from app.repositories.place_repository import get_place, get_place_by_content_id, list_places
 
 
 def _to_read(row):
@@ -21,4 +21,11 @@ def get_place_or_404(db: Session, place_id: int):
     if not row:
         raise NotFoundError("Place not found")
     return _to_read(row)
+
+
+def get_place_by_content_id_or_404(db: Session, content_id: int):
+    place = get_place_by_content_id(db, content_id)
+    if not place:
+        raise NotFoundError("Place not found")
+    return place
 
