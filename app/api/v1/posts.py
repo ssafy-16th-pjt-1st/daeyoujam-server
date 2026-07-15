@@ -9,6 +9,8 @@ from app.schemas.post import (
     PostCreate,
     PostDelete,
     PostListResponse,
+    PostLikeResponse,
+    PostLikeToggle,
     PostRead,
     PostUpdate,
 )
@@ -27,14 +29,20 @@ def verify_post_password(post_id: int, payload: PostDelete, db: Session = Depend
 def list_posts(
     q: str = "",
     category: str | None = None,
+    guest_id: str | None = Query(default=None, max_length=64),
     limit: int = Query(30, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    return post_service.list_posts(db, q=q, category=category, limit=limit)
+    return post_service.list_posts(db, q=q, category=category, limit=limit, guest_id=guest_id)
 
 @router.get("/{post_id}", response_model=PostRead)
-def get_post(post_id: int, db: Session = Depends(get_db)):
-    return post_service.read_post(db, post_id)
+def get_post(post_id: int, guest_id: str | None = Query(default=None, max_length=64), db: Session = Depends(get_db)):
+    return post_service.read_post(db, post_id, guest_id=guest_id)
+
+
+@router.post("/{post_id}/likes", response_model=PostLikeResponse)
+def toggle_post_like(post_id: int, payload: PostLikeToggle, db: Session = Depends(get_db)):
+    return post_service.toggle_post_like(db, post_id, payload.guest_id)
 
 
 @router.post("", response_model=PostRead, status_code=201)

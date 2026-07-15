@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.ai.router import router as ai_router
+from app.ai.services.vector_store_service import ensure_place_vector_index
 from app.core.config import get_settings
-from app.core.database import Base, engine
+from app.core.database import Base, SessionLocal, engine
 from app.core.exceptions import register_exception_handlers
+from app.services.place_seed_service import seed_places_if_empty
 from app import models  # noqa: F401
 
 
@@ -30,6 +32,14 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def on_startup() -> None:
         Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        try:
+            if settings.auto_seed_places:
+                seed_places_if_empty(db)
+            if settings.build_vector_index_on_startup:
+                ensure_place_vector_index(db)
+        finally:
+            db.close()
 
     @app.get("/health")
     def health() -> dict[str, str]:

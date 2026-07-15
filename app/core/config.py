@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     vector_store_path: str = "./data/chroma"
     vector_collection_name: str = "daeyoujam_places"
     vector_embedding_dim: int = 384
+    auto_seed_places: bool = True
+    build_vector_index_on_startup: bool = True
     frontend_origin: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     cors_allow_credentials: bool = True
@@ -25,8 +27,13 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        origins = [origin.strip() for origin in self.cors_origins.split(",")]
-        return [origin for origin in origins if origin]
+        origins = [self.frontend_origin, *self.cors_origins.split(",")]
+        normalized = []
+        for origin in origins:
+            cleaned = origin.strip().rstrip("/")
+            if cleaned and cleaned not in normalized:
+                normalized.append(cleaned)
+        return normalized
 
     @property
     def cors_method_list(self) -> list[str]:

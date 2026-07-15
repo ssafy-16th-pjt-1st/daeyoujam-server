@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from functools import lru_cache
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.place import Place
+
+logger = logging.getLogger(__name__)
 
 TOKEN_PATTERN = re.compile(r"[가-힣A-Za-z0-9]+")
 
@@ -84,12 +87,16 @@ def ensure_place_vector_index(db: Session) -> None:
     collection = _get_collection()
     places = db.scalars(select(Place)).all()
     expected_count = len(places)
-    if expected_count and collection.count() == expected_count:
+    if not expected_count:
+        logger.info("Vector index skipped: no places in database")
+        return
+    if collection.count() == expected_count:
         return
 
-    ids = [str(place.id) for place in places]
-    if ids:
-        collection.delete(ids=ids)
+    existing = collection.get(include=[])
+    existing_ids = existing.get("ids") or []
+    if existing_ids:
+        collection.delete(ids=existing_ids)
 
     batch_size = 128
     for offset in range(0, len(places), batch_size):
@@ -109,6 +116,7 @@ def ensure_place_vector_index(db: Session) -> None:
                 for place in batch
             ],
         )
+    logger.info("Vector index ready: count=%s", expected_count)
 
 
 def retrieve_place_ids_by_vector(db: Session, message: str, user_profile: dict, limit: int = 80) -> list[int]:
