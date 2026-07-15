@@ -7,6 +7,12 @@ from app.core.database import get_db
 from app.ai.services.openai_service import build_llm_chat_answer, check_llm_health
 from app.ai.services.rag_service import build_chat_answer, build_sources, retrieve_ranked_places
 from app.ai.services.review_summary_service import build_review_summary
+from app.ai.services.security_service import (
+    assess_prompt_safety,
+    blocked_prompt_answer,
+    sanitize_user_profile,
+    sanitize_user_text,
+)
 from app.models.ai_summary import AiSummary
 from app.models.place import Place
 from app.models.review import Review
@@ -33,10 +39,20 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat")
 def chat(payload: ChatRequest, db: Session = Depends(get_db)):
+    message = sanitize_user_text(payload.message.strip())
+    user_profile = sanitize_user_profile(payload.user_profile)
+    safety = assess_prompt_safety(message)
+    if safety.blocked:
+        return {
+            "answer": blocked_prompt_answer(safety.reason),
+            "places": [],
+            "sources": [],
+        }
+
     ranked_places = retrieve_ranked_places(
         db,
-        message=payload.message.strip(),
-        user_profile=payload.user_profile,
+        message=message,
+        user_profile=user_profile,
         limit=payload.limit,
     )
     places = []
@@ -48,10 +64,9 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)):
         serialized["recommendation_reason"] = item.recommendation_reason
         places.append(serialized)
 
-    message = payload.message.strip()
-    answer = build_llm_chat_answer(message, payload.user_profile, ranked_places)
+    answer = build_llm_chat_answer(message, user_profile, ranked_places)
     if answer is None:
-        answer = build_chat_answer(message, payload.user_profile, ranked_places)
+        answer = build_chat_answer(message, user_profile, ranked_places)
 
     return {
         "answer": answer,

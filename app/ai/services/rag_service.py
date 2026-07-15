@@ -12,11 +12,11 @@ from app.models.review import Review
 
 CONTENT_KEYWORDS = {
     "관광지": ["관광", "명소", "구경", "산책", "나들이", "자연", "풍경", "데이트"],
-    "음식점": ["맛집", "음식", "밥", "식사", "카페", "빵", "디저트", "먹"],
+    "음식점": ["맛집", "음식", "밥", "식사", "카페", "커피", "빵", "디저트", "먹", "식당", "밥집"],
     "문화시설": ["문화", "전시", "박물관", "공연", "실내", "아이", "가족"],
     "축제공연행사": ["축제", "행사", "공연", "이벤트"],
     "숙박": ["숙박", "호텔", "펜션", "여행", "1박"],
-    "쇼핑": ["쇼핑", "시장", "기념품"],
+    "쇼핑": ["쇼핑", "시장", "기념품", "스토어", "마트"],
     "레포츠": ["레포츠", "운동", "액티비티", "체험"],
     "여행코스": ["코스", "일정", "하루", "반나절", "동선"],
 }
@@ -24,9 +24,11 @@ CONTENT_KEYWORDS = {
 TERM_EXPANSIONS = {
     "카페": ["카페", "커피", "로스터리", "디저트", "베이커리"],
     "커피": ["커피", "카페", "로스터리"],
+    "맛집": ["맛집", "음식점", "식당", "밥집", "먹"],
+    "식당": ["식당", "음식점", "맛집", "밥집"],
     "빵": ["빵", "베이커리", "제과", "성심당"],
-    "디저트": ["디저트", "빵", "베이커리"],
-    "성심당": ["성심당", "빵", "베이커리", "음식점"],
+    "디저트": ["디저트", "빵", "베이커리", "카페"],
+    "성심당": ["성심당", "빵", "베이커리", "대전역", "은행동"],
     "실내": ["실내", "전시", "박물관", "문화", "공연"],
     "산책": ["산책", "공원", "수목원", "호수", "거리"],
 }
@@ -37,13 +39,16 @@ STOPWORDS = {
     "알려줘",
     "알아",
     "어디",
+    "어디있어",
+    "위치",
+    "주소",
     "근처",
     "주변",
     "가까운",
     "같이",
     "갈",
     "만한",
-    "좋은",
+    "좋아",
     "장소",
     "일정",
     "분위기",
@@ -56,6 +61,8 @@ STOPWORDS = {
 DISTRICTS = ["동구", "중구", "서구", "유성구", "대덕구"]
 CAFE_TERMS = {"카페", "커피", "로스터리", "디저트"}
 BAKERY_TERMS = {"빵", "베이커리", "제과", "성심당"}
+FOOD_TERMS = {"맛집", "음식", "밥", "식사", "먹", "식당", "밥집"} | CAFE_TERMS | BAKERY_TERMS
+NEAR_TERMS = {"근처", "주변", "가까운", "인근"}
 
 
 @dataclass
@@ -70,6 +77,7 @@ class QueryIntent:
     district: str | None
     interests: list[str]
     categories: list[str]
+    explicit_categories: list[str]
     tokens: list[str]
     focus_terms: list[str]
     anchor: Place | None
@@ -80,12 +88,21 @@ def build_sources(places):
     return [{"place_id": place.id, "content_id": place.content_id, "title": place.title} for place in places]
 
 
-def infer_categories(message: str, interests: list[str]) -> list[str]:
-    categories = [interest for interest in interests if interest in CONTENT_KEYWORDS]
+def infer_explicit_categories(message: str) -> list[str]:
+    categories = []
     for category, keywords in CONTENT_KEYWORDS.items():
-        if any(keyword in message for keyword in keywords) and category not in categories:
+        if any(keyword in message for keyword in keywords):
             categories.append(category)
-    return categories
+    if any(term in message for term in FOOD_TERMS) and "음식점" not in categories:
+        categories.insert(0, "음식점")
+    return list(dict.fromkeys(categories))
+
+
+def infer_categories(message: str, interests: list[str]) -> list[str]:
+    explicit = infer_explicit_categories(message)
+    if explicit:
+        return explicit
+    return [interest for interest in interests if interest in CONTENT_KEYWORDS]
 
 
 def _keyword_tokens(message: str, district: str | None, interests: list[str]) -> list[str]:
@@ -149,8 +166,9 @@ def _distance_km(origin: Place | None, place: Place) -> float | None:
 def _build_intent(db: Session, message: str, user_profile: dict) -> QueryIntent:
     district = next((name for name in DISTRICTS if name in message), None) or user_profile.get("district")
     interests = user_profile.get("interests") or []
-    categories = infer_categories(message, interests)
-    tokens = _keyword_tokens(message, district, interests)
+    explicit_categories = infer_explicit_categories(message)
+    categories = explicit_categories or [interest for interest in interests if interest in CONTENT_KEYWORDS]
+    tokens = _keyword_tokens(message, district, interests if not explicit_categories else [])
     anchor = _find_anchor_place(db, message)
     anchor_tokens = set(_keyword_tokens(anchor.title, None, []) if anchor else [])
     anchor_expanded_terms = set(_expanded_terms(list(anchor_tokens)))
@@ -160,11 +178,12 @@ def _build_intent(db: Session, message: str, user_profile: dict) -> QueryIntent:
         for term in _expanded_terms(message_tokens)
         if term not in anchor_tokens and term not in anchor_expanded_terms and term not in CONTENT_KEYWORDS
     ]
-    near_anchor = bool(anchor and any(keyword in message for keyword in ["근처", "주변", "가까운", "인근"]))
+    near_anchor = bool(anchor and any(keyword in message for keyword in NEAR_TERMS))
     return QueryIntent(
         district=district,
         interests=interests,
         categories=categories,
+        explicit_categories=explicit_categories,
         tokens=tokens,
         focus_terms=focus_terms,
         anchor=anchor,
@@ -183,7 +202,11 @@ def _score_place(
     reasons = []
     document = _place_document(place)
     title = place.title or ""
-    title_terms = set(term for term in CAFE_TERMS | BAKERY_TERMS if term in title)
+    title_terms = set(term for term in CAFE_TERMS | BAKERY_TERMS | FOOD_TERMS if term in title)
+
+    if intent.explicit_categories and place.content_type not in intent.explicit_categories:
+        score -= 180
+        reasons.append("질문 의도와 다른 분류")
 
     if intent.anchor and place.id == intent.anchor.id:
         if intent.near_anchor:
@@ -192,17 +215,24 @@ def _score_place(
             score += 120
             reasons.append("질문에서 직접 언급한 장소")
 
-    if CAFE_TERMS.intersection(intent.focus_terms):
-        if CAFE_TERMS.intersection(title_terms):
-            score += 42
-            reasons.append("카페 키워드와 직접 일치")
+    if FOOD_TERMS.intersection(intent.focus_terms) or "음식점" in intent.explicit_categories:
+        if place.content_type == "음식점":
+            score += 80
+            reasons.append("맛집 질문과 맞는 음식점")
         else:
+            score -= 100
+
+    if CAFE_TERMS.intersection(intent.focus_terms):
+        if CAFE_TERMS.intersection(title_terms) or "카페" in document or "커피" in document:
+            score += 42
+            reasons.append("카페 키워드와 일치")
+        elif place.content_type != "음식점":
             score -= 34
 
     if BAKERY_TERMS.intersection(intent.focus_terms):
-        if BAKERY_TERMS.intersection(title_terms):
+        if BAKERY_TERMS.intersection(title_terms) or "베이커리" in document:
             score += 28
-            reasons.append("베이커리 키워드와 직접 일치")
+            reasons.append("베이커리 키워드와 일치")
 
     if intent.categories and place.content_type not in intent.categories:
         score -= 55
@@ -211,7 +241,7 @@ def _score_place(
         reasons.append(f"질문 의도와 맞는 {place.content_type}")
 
     if intent.district and place.addr1 and intent.district in place.addr1:
-        score += 16
+        score += 18
         reasons.append(f"{intent.district} 생활권")
 
     for term in intent.focus_terms:
@@ -235,7 +265,7 @@ def _score_place(
             elif intent.near_anchor:
                 score -= min(distance, 30)
 
-    if place.content_type in intent.interests:
+    if not intent.explicit_categories and place.content_type in intent.interests:
         score += 12
 
     score += min(float(rating or 0), 5) * 4
@@ -277,15 +307,22 @@ def _query_candidate_rows(db: Session, intent: QueryIntent, vector_ids: list[int
     if candidate_ids:
         candidate_conditions.append(Place.id.in_(candidate_ids))
     if intent.categories:
-        candidate_conditions.append(Place.content_type.in_(intent.categories))
+        category_condition = Place.content_type.in_(intent.categories)
+        if intent.explicit_categories:
+            candidate_conditions = [category_condition]
+        else:
+            candidate_conditions.append(category_condition)
     if intent.district:
         candidate_conditions.append(Place.addr1.like(f"%{intent.district}%"))
-    if token_filters:
+    if token_filters and not intent.explicit_categories:
         candidate_conditions.append(or_(*token_filters))
 
     stmt = select(Place, avg_rating, review_count).outerjoin(Review).group_by(Place.id)
     if candidate_conditions:
-        stmt = stmt.where(or_(*candidate_conditions))
+        if intent.explicit_categories:
+            stmt = stmt.where(*candidate_conditions)
+        else:
+            stmt = stmt.where(or_(*candidate_conditions))
     return db.execute(stmt).all()
 
 
@@ -317,10 +354,20 @@ def retrieve_ranked_places(
         )
         place.average_rating = round(float(rating or 0), 1)
         place.review_count = int(count or 0)
-        reason = ", ".join(reasons[:3]) + "를 근거로 추천했어요."
-        ranked.append(RankedPlace(place=place, recommendation_reason=reason, score=score))
+        reason = ", ".join(reason for reason in reasons[:3] if reason != "질문 의도와 다른 분류")
+        if not reason:
+            reason = "질문과 장소 정보의 유사도"
+        ranked.append(RankedPlace(place=place, recommendation_reason=f"{reason}를 근거로 추천했어요", score=score))
 
-    ranked.sort(key=lambda item: item.score, reverse=True)
+    ranked.sort(
+        key=lambda item: (
+            item.score,
+            getattr(item.place, "average_rating", 0) or 0,
+            getattr(item.place, "review_count", 0) or 0,
+            item.place.title or "",
+        ),
+        reverse=True,
+    )
     if intent.anchor and not intent.near_anchor and not intent.focus_terms:
         anchor_ranked = [item for item in ranked if item.place.id == intent.anchor.id]
         if anchor_ranked:
@@ -349,8 +396,6 @@ def build_chat_answer(message: str, user_profile: dict, ranked_places: list[Rank
     detail_bits = []
     if primary.addr1:
         detail_bits.append(f"첫 번째 추천지는 {primary.addr1}에 있어요.")
-    if primary.first_image or primary.first_image2:
-        detail_bits.append("사진이 있는 장소를 우선 보여드렸어요.")
     if primary.review_count:
         detail_bits.append(f"리뷰 {primary.review_count}개도 함께 참고할 수 있어요.")
     detail_sentence = " ".join(detail_bits)
@@ -361,10 +406,10 @@ def build_chat_answer(message: str, user_profile: dict, ranked_places: list[Rank
         note = "다만 현재 데이터에는 실시간 운영 여부가 없어 방문 전 공식 안내나 전화 확인을 권장해요."
     elif "아이" in message or "가족" in message:
         note = "아이와 함께라면 이동 거리와 실내 여부를 카드 상세에서 먼저 확인해 보세요."
-    elif "맛집" in message or "먹" in message or "카페" in message:
+    elif any(term in message for term in FOOD_TERMS):
         note = "메뉴와 영업시간은 변동될 수 있으니 상세 보기에서 위치를 확인한 뒤 한 번 더 확인해 주세요."
     else:
-        note = "아래 카드에서 사진, 위치, 평점 정보를 보고 마음에 드는 곳을 자세히 볼 수 있어요."
+        note = "아래 카드에서 사진, 위치, 평점 정보를 보고 마음에 드는 곳을 골라볼 수 있어요."
 
     return (
         f"{nickname}님 질문에는 {area_label}{category_label} 쪽으로 {top_titles} 먼저 추천할게요. "
