@@ -39,6 +39,30 @@ def test_post_create_read_and_wrong_password_update():
     assert failed.status_code == 403
 
 
+def test_post_like_toggles_by_guest_id():
+    created = client.post(
+        "/api/v1/posts",
+        json={"category": "잡담", "title": "좋아요 테스트", "content": "내용", "nickname": "tester", "edit_password": "1234"},
+    )
+    assert created.status_code == 201
+    post_id = created.json()["id"]
+
+    liked = client.post(f"/api/v1/posts/{post_id}/likes", json={"guest_id": "like-guest"})
+    assert liked.status_code == 200
+    assert liked.json()["liked_by_viewer"] is True
+    assert liked.json()["like_count"] == 1
+
+    listed = client.get("/api/v1/posts", params={"guest_id": "like-guest"})
+    item = next(item for item in listed.json()["items"] if item["id"] == post_id)
+    assert item["liked_by_viewer"] is True
+    assert item["like_count"] == 1
+
+    unliked = client.post(f"/api/v1/posts/{post_id}/likes", json={"guest_id": "like-guest"})
+    assert unliked.status_code == 200
+    assert unliked.json()["liked_by_viewer"] is False
+    assert unliked.json()["like_count"] == 0
+
+
 def test_recommendations_shape():
     response = client.post(
         "/api/v1/recommendations",

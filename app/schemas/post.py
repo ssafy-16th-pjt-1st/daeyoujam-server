@@ -29,6 +29,8 @@ class PostRead(BaseModel):
     content: str
     nickname: str
     view_count: int
+    like_count: int = 0
+    liked_by_viewer: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -38,6 +40,16 @@ class PostRead(BaseModel):
 class PostListResponse(BaseModel):
     items: list[PostRead]
     total: int
+
+
+class PostLikeToggle(BaseModel):
+    guest_id: str = Field(min_length=1, max_length=64)
+
+
+class PostLikeResponse(BaseModel):
+    post_id: int
+    like_count: int
+    liked_by_viewer: bool
 
 
 class CommentCreate(BaseModel):

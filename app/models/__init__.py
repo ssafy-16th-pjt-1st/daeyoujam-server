@@ -3,7 +3,8 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.comment import Comment
 from app.models.place import Place
 from app.models.post import Post
+from app.models.post_like import PostLike
 from app.models.review import Review
 from app.models.user import User
 
-__all__ = ["AiSummary", "ChatMessage", "ChatSession", "Comment", "Place", "Post", "Review", "User"]
+__all__ = ["AiSummary", "ChatMessage", "ChatSession", "Comment", "Place", "Post", "PostLike", "Review", "User"]
