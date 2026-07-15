@@ -75,6 +75,7 @@ class RankedPlace:
 @dataclass
 class QueryIntent:
     district: str | None
+    explicit_district: str | None
     interests: list[str]
     categories: list[str]
     explicit_categories: list[str]
@@ -164,7 +165,8 @@ def _distance_km(origin: Place | None, place: Place) -> float | None:
 
 
 def _build_intent(db: Session, message: str, user_profile: dict) -> QueryIntent:
-    district = next((name for name in DISTRICTS if name in message), None) or user_profile.get("district")
+    explicit_district = next((name for name in DISTRICTS if name in message), None)
+    district = explicit_district or user_profile.get("district")
     interests = user_profile.get("interests") or []
     explicit_categories = infer_explicit_categories(message)
     categories = explicit_categories or [interest for interest in interests if interest in CONTENT_KEYWORDS]
@@ -172,7 +174,7 @@ def _build_intent(db: Session, message: str, user_profile: dict) -> QueryIntent:
     anchor = _find_anchor_place(db, message)
     anchor_tokens = set(_keyword_tokens(anchor.title, None, []) if anchor else [])
     anchor_expanded_terms = set(_expanded_terms(list(anchor_tokens)))
-    message_tokens = _keyword_tokens(message, district, [])
+    message_tokens = _keyword_tokens(message, explicit_district, [])
     focus_terms = [
         term
         for term in _expanded_terms(message_tokens)
@@ -181,6 +183,7 @@ def _build_intent(db: Session, message: str, user_profile: dict) -> QueryIntent:
     near_anchor = bool(anchor and any(keyword in message for keyword in NEAR_TERMS))
     return QueryIntent(
         district=district,
+        explicit_district=explicit_district,
         interests=interests,
         categories=categories,
         explicit_categories=explicit_categories,
@@ -326,23 +329,21 @@ def _query_candidate_rows(db: Session, intent: QueryIntent, vector_ids: list[int
     return db.execute(stmt).all()
 
 
-def retrieve_ranked_places(
-    db: Session,
-    *,
-    message: str,
-    user_profile: dict,
-    limit: int = 4,
-) -> list[RankedPlace]:
-    intent = _build_intent(db, message, user_profile)
+def _query_place_rows_by_ids(db: Session, place_ids: list[int]):
+    avg_rating = func.coalesce(func.avg(Review.rating), 0).label("average_rating")
+    review_count = func.count(Review.id).label("review_count")
+    return (
+        db.execute(
+            select(Place, avg_rating, review_count)
+            .outerjoin(Review)
+            .where(Place.id.in_(place_ids))
+            .group_by(Place.id)
+        )
+        .all()
+    )
 
-    try:
-        vector_ids = retrieve_place_ids_by_vector(db, message, user_profile, limit=120)
-    except Exception:
-        vector_ids = []
-    vector_rank_by_id = {place_id: rank for rank, place_id in enumerate(vector_ids)}
 
-    rows = _query_candidate_rows(db, intent, vector_ids, limit)
-
+def _rank_rows(rows, intent: QueryIntent, vector_rank_by_id: dict[int, int]) -> list[RankedPlace]:
     ranked = []
     for place, rating, count in rows:
         score, reasons = _score_place(
@@ -358,7 +359,6 @@ def retrieve_ranked_places(
         if not reason:
             reason = "질문과 장소 정보의 유사도"
         ranked.append(RankedPlace(place=place, recommendation_reason=f"{reason}를 근거로 추천했어요", score=score))
-
     ranked.sort(
         key=lambda item: (
             item.score,
@@ -368,10 +368,29 @@ def retrieve_ranked_places(
         ),
         reverse=True,
     )
+    return ranked
+
+
+def retrieve_ranked_places(
+    db: Session,
+    *,
+    message: str,
+    user_profile: dict,
+    limit: int = 4,
+) -> list[RankedPlace]:
+    intent = _build_intent(db, message, user_profile)
+
     if intent.anchor and not intent.near_anchor and not intent.focus_terms:
-        anchor_ranked = [item for item in ranked if item.place.id == intent.anchor.id]
-        if anchor_ranked:
-            return anchor_ranked[:1]
+        return _rank_rows(_query_place_rows_by_ids(db, [intent.anchor.id]), intent, {})[:1]
+
+    try:
+        vector_ids = retrieve_place_ids_by_vector(db, message, user_profile, limit=120)
+    except Exception:
+        vector_ids = []
+    vector_rank_by_id = {place_id: rank for rank, place_id in enumerate(vector_ids)}
+
+    rows = _query_candidate_rows(db, intent, vector_ids, limit)
+    ranked = _rank_rows(rows, intent, vector_rank_by_id)
     return ranked[:limit]
 
 
@@ -391,7 +410,7 @@ def build_chat_answer(message: str, user_profile: dict, ranked_places: list[Rank
     top_titles = ", ".join(item.place.title for item in top_items)
     primary = top_items[0].place
     category_label = ", ".join(categories[:2]) if categories else primary.content_type or "장소"
-    area_label = f"{district}에서 " if district else ""
+    area_label = f"{district}에서 " if district and primary.addr1 and district in primary.addr1 else ""
 
     detail_bits = []
     if primary.addr1:
