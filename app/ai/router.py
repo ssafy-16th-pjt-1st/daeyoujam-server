@@ -83,7 +83,7 @@ def summarize_reviews(place_id: int, db: Session = Depends(get_db)):
         .where(AiSummary.place_id == place_id, AiSummary.review_count == review_count)
         .order_by(desc(AiSummary.generated_at), desc(AiSummary.id))
     ).first()
-    if latest:
+    if latest and "?" not in latest.summary:
         return {
             "place_id": place_id,
             "summary": [line for line in latest.summary.splitlines() if line.strip()],

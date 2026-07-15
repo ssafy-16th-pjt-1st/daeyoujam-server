@@ -10,6 +10,16 @@ class ReviewCreate(BaseModel):
     edit_password: str = Field(min_length=1, max_length=255)
 
 
+class ReviewUpdate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    content: str = Field(min_length=1)
+    edit_password: str = Field(min_length=1, max_length=255)
+
+
+class ReviewDelete(BaseModel):
+    edit_password: str = Field(min_length=1, max_length=255)
+
+
 class ReviewRead(BaseModel):
     id: int
     place_id: int

@@ -19,14 +19,16 @@ def fallback_review_summary(place: Place, reviews: list[Review], average_rating:
     positive = [review for review in reviews if review.rating >= 4]
     critical = [review for review in reviews if review.rating <= 2]
     latest = reviews[0]
+    latest_excerpt = (latest.content or "").strip()[:60]
+
     lines = [
         f"총 {len(reviews)}개 리뷰 기준 평균 별점은 {average_rating:.1f}점이며, 긍정 리뷰가 {len(positive)}개입니다.",
-        f"최근 리뷰에서는 \"{latest.content[:48]}\" 같은 반응이 확인됩니다.",
+        f"최근 리뷰에서는 \"{latest_excerpt}\" 같은 반응이 확인됩니다.",
     ]
     if critical:
         lines.append(f"낮은 별점 리뷰도 {len(critical)}개 있어 혼잡도나 기대와 다른 점이 있는지 함께 확인하는 편이 좋습니다.")
     else:
-        lines.append("방문 전에는 사진, 위치, 연락처를 함께 확인하고 리뷰가 더 쌓이면 만족도 흐름을 다시 보는 것이 좋습니다.")
+        lines.append("방문 전에는 사진, 위치, 연락처를 함께 확인하고 리뷰가 더 쌓이면 만족 흐름을 다시 보는 것이 좋습니다.")
     return lines
 
 
@@ -59,7 +61,7 @@ def build_review_summary(place: Place, reviews: list[Review], average_rating: fl
                     "role": "system",
                     "content": (
                         "너는 장소 리뷰를 요약하는 한국어 에디터다. "
-                        "실제 리뷰에 근거해서 2~3줄 이상의 짧은 브리핑을 작성한다. "
+                        "실제 리뷰를 근거로 2~3줄의 짧은 브리핑을 작성한다. "
                         "없는 사실은 만들지 말고, 장점과 주의점을 균형 있게 말한다."
                     ),
                 },
