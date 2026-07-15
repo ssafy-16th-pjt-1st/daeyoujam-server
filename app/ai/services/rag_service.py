@@ -22,10 +22,11 @@ CONTENT_KEYWORDS = {
 }
 
 TERM_EXPANSIONS = {
-    "카페": ["카페", "커피", "로스터", "디저트", "베이커리"],
-    "커피": ["커피", "카페", "로스터"],
-    "빵": ["빵", "베이커리", "제빵", "성심당"],
-    "성심당": ["성심당", "빵", "베이커리"],
+    "카페": ["카페", "커피", "로스터리", "디저트", "베이커리"],
+    "커피": ["커피", "카페", "로스터리"],
+    "빵": ["빵", "베이커리", "제과", "성심당"],
+    "디저트": ["디저트", "빵", "베이커리"],
+    "성심당": ["성심당", "빵", "베이커리", "음식점"],
     "실내": ["실내", "전시", "박물관", "문화", "공연"],
     "산책": ["산책", "공원", "수목원", "호수", "거리"],
 }
@@ -34,6 +35,7 @@ STOPWORDS = {
     "추천",
     "추천해줘",
     "알려줘",
+    "알아",
     "어디",
     "근처",
     "주변",
@@ -52,8 +54,8 @@ STOPWORDS = {
 }
 
 DISTRICTS = ["동구", "중구", "서구", "유성구", "대덕구"]
-CAFE_TERMS = {"카페", "커피", "로스터", "디저트"}
-BAKERY_TERMS = {"빵", "베이커리", "제빵"}
+CAFE_TERMS = {"카페", "커피", "로스터리", "디저트"}
+BAKERY_TERMS = {"빵", "베이커리", "제과", "성심당"}
 
 
 @dataclass
@@ -183,6 +185,13 @@ def _score_place(
     title = place.title or ""
     title_terms = set(term for term in CAFE_TERMS | BAKERY_TERMS if term in title)
 
+    if intent.anchor and place.id == intent.anchor.id:
+        if intent.near_anchor:
+            score -= 80
+        else:
+            score += 120
+            reasons.append("질문에서 직접 언급한 장소")
+
     if CAFE_TERMS.intersection(intent.focus_terms):
         if CAFE_TERMS.intersection(title_terms):
             score += 42
@@ -214,9 +223,7 @@ def _score_place(
 
     if intent.anchor:
         distance = _distance_km(intent.anchor, place)
-        if place.id == intent.anchor.id and intent.near_anchor:
-            score -= 80
-        elif distance is not None:
+        if place.id != intent.anchor.id and distance is not None:
             if distance <= 1:
                 score += 38
                 reasons.append(f"{intent.anchor.title}에서 약 {distance:.1f}km")
@@ -236,14 +243,50 @@ def _score_place(
     if place.first_image or place.first_image2:
         score += 4
 
-    if not reasons:
-        reasons.append("질문과 장소 문서 유사도")
-
     if vector_rank is not None:
         score += max(8, 48 - vector_rank * 0.8)
-        reasons.insert(0, "프로필·질문 임베딩 유사도")
+        reasons.insert(0, "프로필과 질문의 의미 유사도")
+
+    if not reasons:
+        reasons.append("질문과 장소 정보의 유사도")
 
     return score, list(dict.fromkeys(reasons))[:3]
+
+
+def _query_candidate_rows(db: Session, intent: QueryIntent, vector_ids: list[int], limit: int):
+    avg_rating = func.coalesce(func.avg(Review.rating), 0).label("average_rating")
+    review_count = func.count(Review.id).label("review_count")
+
+    candidate_ids = set(vector_ids[: max(limit * 8, 40)])
+    if intent.anchor:
+        candidate_ids.add(intent.anchor.id)
+
+    token_filters = []
+    for token in intent.tokens[:10]:
+        pattern = f"%{token}%"
+        token_filters.append(
+            or_(
+                Place.title.like(pattern),
+                Place.addr1.like(pattern),
+                Place.addr2.like(pattern),
+                Place.content_type.like(pattern),
+            )
+        )
+
+    candidate_conditions = []
+    if candidate_ids:
+        candidate_conditions.append(Place.id.in_(candidate_ids))
+    if intent.categories:
+        candidate_conditions.append(Place.content_type.in_(intent.categories))
+    if intent.district:
+        candidate_conditions.append(Place.addr1.like(f"%{intent.district}%"))
+    if token_filters:
+        candidate_conditions.append(or_(*token_filters))
+
+    stmt = select(Place, avg_rating, review_count).outerjoin(Review).group_by(Place.id)
+    if candidate_conditions:
+        stmt = stmt.where(or_(*candidate_conditions))
+    return db.execute(stmt).all()
 
 
 def retrieve_ranked_places(
@@ -255,54 +298,13 @@ def retrieve_ranked_places(
 ) -> list[RankedPlace]:
     intent = _build_intent(db, message, user_profile)
 
-    avg_rating = func.coalesce(func.avg(Review.rating), 0).label("average_rating")
-    review_count = func.count(Review.id).label("review_count")
-
-    vector_rank_by_id = {}
     try:
         vector_ids = retrieve_place_ids_by_vector(db, message, user_profile, limit=120)
-        vector_rank_by_id = {place_id: rank for rank, place_id in enumerate(vector_ids)}
     except Exception:
         vector_ids = []
+    vector_rank_by_id = {place_id: rank for rank, place_id in enumerate(vector_ids)}
 
-    if vector_ids:
-        rows = db.execute(
-            select(Place, avg_rating, review_count)
-            .outerjoin(Review)
-            .where(Place.id.in_(vector_ids))
-            .group_by(Place.id)
-        ).all()
-    else:
-        rows = []
-
-    if len(rows) < limit:
-        token_filters = []
-        for token in intent.tokens[:10]:
-            pattern = f"%{token}%"
-            token_filters.append(
-                or_(
-                    Place.title.like(pattern),
-                    Place.addr1.like(pattern),
-                    Place.addr2.like(pattern),
-                    Place.content_type.like(pattern),
-                )
-            )
-
-        category_condition = Place.content_type.in_(intent.categories) if intent.categories else None
-        district_condition = Place.addr1.like(f"%{intent.district}%") if intent.district else None
-        candidate_conditions = [
-            condition
-            for condition in [
-                category_condition,
-                district_condition,
-                or_(*token_filters) if token_filters else None,
-            ]
-            if condition is not None
-        ]
-        stmt = select(Place, avg_rating, review_count).outerjoin(Review).group_by(Place.id)
-        if candidate_conditions:
-            stmt = stmt.where(or_(*candidate_conditions))
-        rows = db.execute(stmt).all()
+    rows = _query_candidate_rows(db, intent, vector_ids, limit)
 
     ranked = []
     for place, rating, count in rows:
@@ -319,6 +321,10 @@ def retrieve_ranked_places(
         ranked.append(RankedPlace(place=place, recommendation_reason=reason, score=score))
 
     ranked.sort(key=lambda item: item.score, reverse=True)
+    if intent.anchor and not intent.near_anchor and not intent.focus_terms:
+        anchor_ranked = [item for item in ranked if item.place.id == intent.anchor.id]
+        if anchor_ranked:
+            return anchor_ranked[:1]
     return ranked[:limit]
 
 
@@ -331,7 +337,7 @@ def build_chat_answer(message: str, user_profile: dict, ranked_places: list[Rank
     if not ranked_places:
         return (
             "지금 조건에 맞는 장소를 찾지 못했어요. "
-            "지역을 대전 전체로 넓히거나 관심사를 관광지, 음식점, 문화시설처럼 조금 더 크게 잡아서 다시 물어봐 주세요."
+            "지역을 더 넓히거나 관심사를 관광지, 음식점, 문화시설처럼 조금 더 크게 잡아 다시 물어봐 주세요."
         )
 
     top_items = ranked_places[:3]
@@ -349,16 +355,18 @@ def build_chat_answer(message: str, user_profile: dict, ranked_places: list[Rank
         detail_bits.append(f"리뷰 {primary.review_count}개도 함께 참고할 수 있어요.")
     detail_sentence = " ".join(detail_bits)
 
-    if "오늘" in message or "지금" in message:
-        note = "다만 현재 데이터에는 실시간 운영 여부가 없어서 방문 전 공식 안내나 전화 확인을 권장해요."
+    if primary.title and primary.title in message:
+        note = "아래 카드에서 위치, 사진, 별점과 리뷰를 바로 확인할 수 있어요."
+    elif "오늘" in message or "지금" in message:
+        note = "다만 현재 데이터에는 실시간 운영 여부가 없어 방문 전 공식 안내나 전화 확인을 권장해요."
     elif "아이" in message or "가족" in message:
         note = "아이와 함께라면 이동 거리와 실내 여부를 카드 상세에서 먼저 확인해 보세요."
     elif "맛집" in message or "먹" in message or "카페" in message:
-        note = "메뉴나 영업시간은 변동될 수 있으니 상세 보기에서 위치를 확인한 뒤 한 번 더 확인해 주세요."
+        note = "메뉴와 영업시간은 변동될 수 있으니 상세 보기에서 위치를 확인한 뒤 한 번 더 확인해 주세요."
     else:
         note = "아래 카드에서 사진, 위치, 평점 정보를 보고 마음에 드는 곳을 자세히 볼 수 있어요."
 
     return (
-        f"{nickname}님 질문에는 {area_label}{category_label} 쪽으로 {top_titles}를 먼저 추천할게요. "
+        f"{nickname}님 질문에는 {area_label}{category_label} 쪽으로 {top_titles} 먼저 추천할게요. "
         f"{detail_sentence} {note}"
     )

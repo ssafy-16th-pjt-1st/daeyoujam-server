@@ -73,3 +73,35 @@ def test_comment_delete_requires_password():
         json={"edit_password": "abcd"},
     )
     assert deleted.status_code == 204
+
+
+def test_review_uses_saved_user_nickname():
+    places = client.get("/api/v1/places")
+    assert places.status_code == 200
+    place_id = places.json()["items"][0]["id"]
+
+    user = client.post(
+        "/api/v1/users",
+        json={
+            "guest_id": "review-guest",
+            "nickname": "saved-nickname",
+            "province": "Daejeon",
+            "city": "Daejeon",
+            "interests": [],
+            "preferred_keywords": [],
+        },
+    )
+    assert user.status_code == 201
+
+    review = client.post(
+        f"/api/v1/places/{place_id}/reviews",
+        json={
+            "guest_id": "review-guest",
+            "nickname": "forged-nickname",
+            "rating": 5,
+            "content": "good",
+            "edit_password": "1234",
+        },
+    )
+    assert review.status_code == 201
+    assert review.json()["nickname"] == "saved-nickname"

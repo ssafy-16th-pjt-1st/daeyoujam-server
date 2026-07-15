@@ -4,9 +4,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ReviewCreate(BaseModel):
-    nickname: str = Field(min_length=1, max_length=50)
+    guest_id: str = Field(min_length=1, max_length=64)
     rating: int = Field(ge=1, le=5)
     content: str = Field(min_length=1)
+    edit_password: str = Field(min_length=1, max_length=255)
+
+
+class ReviewUpdate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    content: str = Field(min_length=1)
+    edit_password: str = Field(min_length=1, max_length=255)
+
+
+class ReviewDelete(BaseModel):
     edit_password: str = Field(min_length=1, max_length=255)
 
 
@@ -26,4 +36,3 @@ class RatingResponse(BaseModel):
     place_id: int
     average_rating: float
     review_count: int
-
