@@ -11,6 +11,9 @@ class RecommendationRequest(BaseModel):
     district: str | None = None
     category: str | None = Field(default=None, max_length=50)
     interests: list[str] = Field(default_factory=list)
+    preferred_keywords: list[str] = Field(default_factory=list)
+    travel_style: str | None = None
+    companion_type: str | None = None
     limit: int = Field(default=12, ge=1, le=50)
 
 
@@ -29,6 +32,7 @@ class RecommendedPost(BaseModel):
     content: str
     nickname: str
     view_count: int
+    like_count: int = 0
     recommendation_reason: str
 
 
