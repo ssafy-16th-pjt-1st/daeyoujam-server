@@ -13,6 +13,7 @@ def list_posts(
     q: str = "",
     category: str | None = None,
     limit: int = 30,
+    offset: int = 0,
     sort: str = "recent",
 ) -> tuple[list[Post], int]:
     like_count = func.count(PostLike.id).label("like_count")
@@ -36,7 +37,7 @@ def list_posts(
     else:
         order_by = (Post.created_at.desc(), Post.id.desc())
 
-    rows = db.execute(stmt.order_by(*order_by).limit(limit)).all()
+    rows = db.execute(stmt.order_by(*order_by).offset(offset).limit(limit)).all()
     items = []
     for post, count in rows:
         post.like_count = int(count or 0)

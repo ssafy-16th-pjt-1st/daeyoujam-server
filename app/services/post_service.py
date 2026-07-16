@@ -14,10 +14,12 @@ def list_posts(
     q: str = "",
     category: str | None = None,
     limit: int = 30,
+    page: int = 1,
     guest_id: str | None = None,
     sort: str = "recent",
 ):
-    items, total = post_repository.list_posts(db, q=q, category=category, limit=limit, sort=sort)
+    offset = (page - 1) * limit
+    items, total = post_repository.list_posts(db, q=q, category=category, limit=limit, offset=offset, sort=sort)
     attach_like_state(db, items, guest_id)
     return {"items": items, "total": total}
 
