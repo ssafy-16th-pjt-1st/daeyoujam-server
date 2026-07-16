@@ -30,11 +30,12 @@ def list_posts(
     q: str = "",
     category: str | None = None,
     guest_id: str | None = Query(default=None, max_length=64),
+    page: int = Query(1, ge=1),
     limit: int = Query(30, ge=1, le=100),
     sort: str = Query("recent", pattern="^(recent|likes|views)$"),
     db: Session = Depends(get_db),
 ):
-    return post_service.list_posts(db, q=q, category=category, limit=limit, guest_id=guest_id, sort=sort)
+    return post_service.list_posts(db, q=q, category=category, page=page, limit=limit, guest_id=guest_id, sort=sort)
 
 @router.get("/{post_id}", response_model=PostRead)
 def get_post(post_id: int, guest_id: str | None = Query(default=None, max_length=64), db: Session = Depends(get_db)):

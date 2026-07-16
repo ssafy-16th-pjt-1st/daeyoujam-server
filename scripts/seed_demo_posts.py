@@ -5,6 +5,7 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "localhub.db"
 EDIT_PASSWORD = "1234"
+DEMO_LIKE_GUEST_PREFIX = "demo-like-user"
 
 POSTS = [
     ("관광지", "대청호오백리길 아침 산책 진짜 좋네요", "청주에서 주말에 넘어와서 대청호오백리길 걸었는데 사람도 너무 많지 않고 물안개가 살짝 있어서 분위기가 좋았습니다. 차로 가면 주차도 크게 어렵지 않았고, 부모님 모시고 천천히 걷기 괜찮았어요. 다만 카페 들르려면 미리 동선 보고 가는 걸 추천합니다.", "청주나들이러", 34),
@@ -45,22 +46,35 @@ def main() -> None:
     with sqlite3.connect(DB_PATH) as con:
         cur = con.cursor()
         inserted = 0
+        inserted_likes = 0
         for index, (category, title, content, nickname, views) in enumerate(POSTS):
-            if cur.execute("SELECT 1 FROM posts WHERE title = ?", (title,)).fetchone():
-                continue
-            timestamp = (now - timedelta(hours=index * 5 + 1)).strftime("%Y-%m-%d %H:%M:%S")
-            cur.execute(
-                """
-                INSERT INTO posts
-                    (category, title, content, nickname, edit_password, view_count, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (category, title, content, nickname, EDIT_PASSWORD, views, timestamp, timestamp),
-            )
-            inserted += 1
+            existing = cur.execute("SELECT id FROM posts WHERE title = ?", (title,)).fetchone()
+            if existing:
+                post_id = existing[0]
+            else:
+                timestamp = (now - timedelta(hours=index * 5 + 1)).strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute(
+                    """
+                    INSERT INTO posts
+                        (category, title, content, nickname, edit_password, view_count, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (category, title, content, nickname, EDIT_PASSWORD, views, timestamp, timestamp),
+                )
+                post_id = cur.lastrowid
+                inserted += 1
+
+            like_count = max(1, min(18, views // 4 + (index % 5)))
+            for like_index in range(like_count):
+                cur.execute(
+                    "INSERT OR IGNORE INTO post_likes (post_id, guest_id) VALUES (?, ?)",
+                    (post_id, f"{DEMO_LIKE_GUEST_PREFIX}-{index + 1:02d}-{like_index + 1:02d}"),
+                )
+                inserted_likes += cur.rowcount
         con.commit()
         total = cur.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
-    print(f"Inserted {inserted} demo posts. Total posts: {total}.")
+        total_likes = cur.execute("SELECT COUNT(*) FROM post_likes").fetchone()[0]
+    print(f"Inserted {inserted} demo posts and {inserted_likes} demo likes. Total posts: {total}. Total likes: {total_likes}.")
 
 
 if __name__ == "__main__":

@@ -63,6 +63,31 @@ def test_post_like_toggles_by_guest_id():
     assert unliked.json()["like_count"] == 0
 
 
+def test_posts_list_paginates():
+    for index in range(2):
+        created = client.post(
+            "/api/v1/posts",
+            json={
+                "category": "잡담",
+                "title": f"페이지네이션 테스트 {index}",
+                "content": "내용",
+                "nickname": "tester",
+                "edit_password": "1234",
+            },
+        )
+        assert created.status_code == 201
+
+    first_page = client.get("/api/v1/posts", params={"page": 1, "limit": 1})
+    second_page = client.get("/api/v1/posts", params={"page": 2, "limit": 1})
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    assert first_page.json()["total"] >= 2
+    assert len(first_page.json()["items"]) == 1
+    assert len(second_page.json()["items"]) == 1
+    assert first_page.json()["items"][0]["id"] != second_page.json()["items"][0]["id"]
+
+
 def test_recommendations_shape():
     response = client.post(
         "/api/v1/recommendations",
