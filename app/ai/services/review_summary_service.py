@@ -18,12 +18,12 @@ def fallback_review_summary(place: Place, reviews: list[Review], average_rating:
 
     positive = [review for review in reviews if review.rating >= 4]
     critical = [review for review in reviews if review.rating <= 2]
-    latest = reviews[0]
-    latest_excerpt = (latest.content or "").strip()[:60]
+    review_count = len(reviews)
+    positive_ratio = len(positive) / review_count
 
     lines = [
-        f"총 {len(reviews)}개 리뷰 기준 평균 별점은 {average_rating:.1f}점이며, 긍정 리뷰가 {len(positive)}개입니다.",
-        f"최근 리뷰에서는 \"{latest_excerpt}\" 같은 반응이 확인됩니다.",
+        f"전체 {review_count}개 리뷰 기준 평균 별점은 {average_rating:.1f}점이며, 긍정 리뷰 비중은 {positive_ratio:.0%}입니다.",
+        "방문자들은 별점 흐름을 기준으로 장소의 전반적인 만족도를 판단하고 있습니다.",
     ]
     if critical:
         lines.append(f"낮은 별점 리뷰도 {len(critical)}개 있어 혼잡도나 기대와 다른 점이 있는지 함께 확인하는 편이 좋습니다.")
@@ -47,7 +47,7 @@ def build_review_summary(place: Place, reviews: list[Review], average_rating: fl
             "content": review.content,
             "created_at": review.created_at.isoformat() if review.created_at else None,
         }
-        for review in reviews[:20]
+        for review in reviews[:50]
     ]
 
     try:
@@ -61,8 +61,9 @@ def build_review_summary(place: Place, reviews: list[Review], average_rating: fl
                     "role": "system",
                     "content": (
                         "너는 장소 리뷰를 요약하는 한국어 에디터다. "
-                        "실제 리뷰를 근거로 2~3줄의 짧은 브리핑을 작성한다. "
-                        "없는 사실은 만들지 말고, 장점과 주의점을 균형 있게 말한다."
+                        "실제 리뷰 전체의 공통 흐름을 근거로 2~3줄의 짧은 종합 요약을 작성한다. "
+                        "특정 최신 리뷰나 일부 리뷰만 강조하지 말고, 전체적인 만족 포인트와 주의점을 균형 있게 말한다. "
+                        "없는 사실은 만들지 않는다."
                     ),
                 },
                 {
@@ -74,7 +75,8 @@ def build_review_summary(place: Place, reviews: list[Review], average_rating: fl
                         f"평균 별점: {average_rating:.1f}\n"
                         f"리뷰 수: {len(reviews)}\n"
                         f"리뷰 데이터: {review_context}\n\n"
-                        "반드시 한국어 문장 3개를 JSON 없이 줄바꿈으로만 작성해줘."
+                        "전체 리뷰를 종합한 한국어 문장 3개를 JSON 없이 줄바꿈으로만 작성해줘. "
+                        "'최근 리뷰', '최근에는'처럼 최신성 중심 표현은 쓰지 마."
                     ),
                 },
             ],

@@ -28,6 +28,12 @@ from app.schemas.chat import ChatHistoryResponse, ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+STALE_REVIEW_SUMMARY_MARKERS = ("최근 리뷰", "최근에는")
+
+
+def _is_usable_review_summary_cache(summary: str) -> bool:
+    return bool(summary and "?" not in summary and not any(marker in summary for marker in STALE_REVIEW_SUMMARY_MARKERS))
+
 
 def _serialize_chat_place(item) -> dict:
     place = item.place
@@ -152,7 +158,7 @@ def summarize_reviews(place_id: int, db: Session = Depends(get_db)):
     if not place:
         raise HTTPException(status_code=404, detail="Place not found")
 
-    reviews = db.scalars(select(Review).where(Review.place_id == place_id).order_by(desc(Review.id))).all()
+    reviews = db.scalars(select(Review).where(Review.place_id == place_id).order_by(Review.id.asc())).all()
     row = db.execute(
         select(func.coalesce(func.avg(Review.rating), 0), func.count(Review.id)).where(Review.place_id == place_id)
     ).one()
@@ -164,7 +170,7 @@ def summarize_reviews(place_id: int, db: Session = Depends(get_db)):
         .where(AiSummary.place_id == place_id, AiSummary.review_count == review_count)
         .order_by(desc(AiSummary.generated_at), desc(AiSummary.id))
     ).first()
-    if latest and "?" not in latest.summary:
+    if latest and _is_usable_review_summary_cache(latest.summary):
         return {
             "place_id": place_id,
             "summary": [line for line in latest.summary.splitlines() if line.strip()],
